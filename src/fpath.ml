@@ -6,6 +6,22 @@
 
 open Astring
 
+(*
+   The main type, representing a path. The internal representation is
+   hidden from the user.
+
+   We store paths in string form for performance reasons
+   (https://github.com/dbuenzli/fpath/issues/18#issuecomment-1434414621).
+
+   N.B. a path is never "" or something is wrooong.
+*)
+type 'a t = string
+
+(* Empty types representing different path syntaxes *)
+type native
+type posix
+type windows
+
 (* Unsafe string and byte manipulations. If you don't believe the
    author's invariants, replacing with safe versions makes everything
    safe in the library. He won't be upset. *)
@@ -183,8 +199,6 @@ let segs_to_path segs = String.concat ~sep:dir_sep segs
 
 (* File paths *)
 
-type t = string (* N.B. a path is never "" or something is wrooong. *)
-
 let err s = Error (`Msg (strf "%a: invalid path" String.dump s))
 
 let validate_and_collapse_seps p =
@@ -215,7 +229,12 @@ let validate_and_collapse_seps p =
   in
   try_no_alloc false start
 
-let of_string_windows s =
+(*
+   Forward slashes in a Windows path are treated like backslashes.
+   This function performs this normalization and a few others,
+   and validates the path i.e. rejects empty paths.
+*)
+let of_windows_string s =
   if s = "" then err s else
   let p = String.map (fun c -> if c = '/' then '\\' else c) s in
   match validate_and_collapse_seps p with
@@ -229,12 +248,17 @@ let of_string_windows s =
       | Some i when i = String.length p - 1 -> err p (* path is empty *)
       | Some _ -> Ok p
 
-let of_string_posix p = if p = "" then err p else validate_and_collapse_seps p
-let of_string = if windows then of_string_windows else of_string_posix
+let of_posix_string p = if p = "" then err p else validate_and_collapse_seps p
 
-let v s = match of_string s with
+let of_string = if windows then of_windows_string else of_posix_string
+
+let v_poly of_string s = match of_string s with
 | Ok p -> p
 | Error (`Msg m) -> invalid_arg m
+
+let v = v_poly of_string
+let posix_v = v_poly of_posix_string
+let windows_v = v_poly of_windows_string
 
 let add_seg p seg =
   if not (is_seg seg) then invalid_arg (err_invalid_seg seg);
@@ -594,6 +618,7 @@ let is_dotfile p = match basename p with | "" -> false | s -> s.[0] = '.'
 
 let equal = String.equal
 let compare = String.compare
+let hash = String.hash
 
 (* Conversions and pretty printing *)
 
@@ -674,95 +699,6 @@ let split_ext ?multi p =
 
 let ( + ) p e = add_ext e p
 let ( -+ ) p e = set_ext e p
-
-(* Path sets and maps *)
-
-type path = t
-
-module Set = struct
-  include Set.Make (String)
-
-  let pp ?sep:(pp_sep = Format.pp_print_cut) pp_elt ppf ps =
-    let pp_elt elt is_first =
-      if is_first then () else pp_sep ppf ();
-      Format.fprintf ppf "%a" pp_elt elt; false
-    in
-    ignore (fold pp_elt ps true)
-
-  let dump_path = dump
-  let dump ppf ss =
-    let pp_elt elt is_first =
-      if is_first then () else Format.fprintf ppf "@ ";
-      Format.fprintf ppf "%a" dump_path elt;
-      false
-    in
-    Format.fprintf ppf "@[<1>{";
-    ignore (fold pp_elt ss true);
-    Format.fprintf ppf "}@]";
-    ()
-
-  let err_empty () = invalid_arg "empty set"
-  let err_absent p ps =
-    invalid_arg (strf "%a not in set %a" dump_path p dump ps)
-
-  let get_min_elt ps = try min_elt ps with Not_found -> err_empty ()
-  let min_elt ps = try Some (min_elt ps) with Not_found -> None
-
-  let get_max_elt ps = try max_elt ps with Not_found -> err_empty ()
-  let max_elt ps = try Some (max_elt ps) with Not_found -> None
-
-  let get_any_elt ps = try choose ps with Not_found -> err_empty ()
-  let choose ps = try Some (choose ps) with Not_found -> None
-
-  let get p ps = try find p ps with Not_found -> err_absent p ps
-  let find p ps = try Some (find p ps) with Not_found -> None
-
-  let of_list = List.fold_left (fun acc s -> add s acc) empty
-end
-
-module Map = struct
-  include Map.Make (String)
-
-  let err_empty () = invalid_arg "empty map"
-  let err_absent s = invalid_arg (strf "%s is not bound in map" s)
-
-  let get_min_binding m = try min_binding m with Not_found -> err_empty ()
-  let min_binding m = try Some (min_binding m) with Not_found -> None
-
-  let get_max_binding m = try max_binding m with Not_found -> err_empty ()
-  let max_binding m = try Some (max_binding m) with Not_found -> None
-
-  let get_any_binding m = try choose m with Not_found -> err_empty ()
-  let choose m = try Some (choose m) with Not_found -> None
-
-  let get k s = try find k s with Not_found -> err_absent k
-  let find k m = try Some (find k m) with Not_found -> None
-
-  let dom m = fold (fun k _ acc -> Set.add k acc) m Set.empty
-
-  let of_list bs = List.fold_left (fun m (k,v) -> add k v m) empty bs
-
-  let pp ?sep:(pp_sep = Format.pp_print_cut) pp_binding ppf (m : 'a t) =
-    let pp_binding k v is_first =
-      if is_first then () else pp_sep ppf ();
-      pp_binding ppf (k, v); false
-    in
-    ignore (fold pp_binding m true)
-
-  let dump pp_v ppf m =
-    let pp_binding k v is_first =
-      if is_first then () else Format.fprintf ppf "@ ";
-      Format.fprintf ppf "@[<1>(@[%a@],@ @[%a@])@]" dump k pp_v v;
-      false
-    in
-    Format.fprintf ppf "@[<1>{";
-    ignore (fold pp_binding m true);
-    Format.fprintf ppf "}@]";
-    ()
-end
-
-type set = Set.t
-type 'a map = 'a Map.t
 
 (*---------------------------------------------------------------------------
    Copyright (c) 2015 The fpath programmers

@@ -47,26 +47,43 @@ val is_rel_seg : string -> bool
 
 (** {1:paths Paths} *)
 
-type t
-(** The type for paths. *)
+type native
+(** The syntax of file paths on the local system, which is either
+    POSIX-compatible or Windows. This type contains no value.
+    It's meant to be used as a type parameter in [Fpath.(native t)]. *)
 
-val v : string -> t
+type posix
+(** The syntax of file paths on POSIX systems. This type contains no value.
+    It's meant to be used as a type parameter in [Fpath.(posix t)]. *)
+
+type windows
+(** The syntax of file paths on Windows systems.
+    It's meant to be used as a type parameter in [Fpath.(windows t)]. *)
+
+type 'a t
+(** The type of a syntactically valid path. The type parameter is the
+    syntax of the path. *)
+
+val v : string -> native t
 (** [v s] is the string [s] as a path.
 
     @raise Invalid_argument if [s] is not a {{!of_string}valid path}. Use
     {!of_string} to deal with untrusted input. *)
 
-val add_seg : t -> string -> t
+val posix_v : string -> posix t
+val windows_v : string -> windows t
+
+val add_seg : 'a t -> string -> 'a t
 (** [add_seg p seg] adds segment [seg] to the segments of [p] if
     [p]'s last segment is non-empty or replaces the last empty
     segment with [seg]. {{!ex_add_seg}Examples}.
 
     @raise Invalid_argument if {!is_seg}[ seg] is [false]. *)
 
-val ( / ) : t -> string -> t
+val ( / ) : 'a t -> string -> 'a t
 (** [p / seg] is {!add_seg}[ p seg]. Left associative. *)
 
-val append : t -> t -> t
+val append : 'a t -> 'a t -> 'a t
 (** [append p q] appends [q] to [p] as follows:
     {ul
     {- If [q] is absolute or has a non-empty {{!split_volume}volume} then
@@ -74,10 +91,10 @@ val append : t -> t -> t
     {- Otherwise appends [q]'s segments to [p] using {!add_seg}.}}
     {{!ex_append}Examples}. *)
 
-val ( // ) : t -> t -> t
+val ( // ) : 'a t -> 'a t -> 'a t
 (** [p // p'] is {!append}[ p p']. Left associative. *)
 
-val split_volume : t -> string * t
+val split_volume : 'a t -> string * 'a t
 (** [split_volume p] is the pair [(vol, q)] where [vol] is
     the platform dependent volume of [p] or the empty string
     if there is none and [q] the path [p] without its volume, that is
@@ -100,7 +117,7 @@ $(drive):
     {ul
     {- [equal p (v @@ vol ^ (to_string q))]}} *)
 
-val segs : t -> string list
+val segs : 'a t -> string list
 (** [segs p] is [p]'s {e non-empty} list of segments. Absolute paths have an
     initial empty string added, this allows to recover the path's string with
     {!String.concat}[ ~sep:dir_sep]. {{!ex_segs}Examples.}
@@ -116,26 +133,26 @@ val segs : t -> string list
     of paths. Given a path, these properties can be different from the one
     your file system attributes to it. *)
 
-val is_dir_path : t -> bool
+val is_dir_path : 'a t -> bool
 (** [is_dir_path p] is [true] iff [p] represents a directory. This
     means that [p]'s last segment is either empty ([""]) or
     {{!is_rel_seg}relative}.  The property is invariant with respect
     to {{!normalize}normalization}.  {{!ex_is_dir_path}Examples}. *)
 
-val is_file_path : t -> bool
+val is_file_path : 'a t -> bool
 (** [is_file_path p] is [true] iff [p] represents a file. This is the
     negation of {!is_dir_path}. This means that [p]'s last segment is
     neither empty ([""]) nor {{!is_rel_seg}relative}. The property is
     invariant with respect to {{!normalize}normalization}.
     {{!ex_is_file_path}Examples}. *)
 
-val to_dir_path : t -> t
+val to_dir_path : 'a t -> 'a t
 (** [to_dir_path p] is {!add_seg}[ p ""]. It ensure that the result
     represents a {{!is_dir_path}directory} and, if converted to a
     string, that it ends with a {!dir_sep}.
     {{!ex_to_dir_path}Examples}. *)
 
-val filename : t -> string
+val filename : 'a t -> string
 (** [filename p] is the file name of [p]. This is the last segment of
     [p] if [p] is a {{!is_file_path}file path} and the empty string
     otherwise. The result is invariant with respect to
@@ -144,7 +161,7 @@ val filename : t -> string
 
 (** {1:parentbase Base and parent paths} *)
 
-val split_base : t -> t * t
+val split_base : 'a t -> 'a t * 'a t
 (** [split_base p] splits [p] into a directory [d] and a {e relative}
     base path [b] such that:
     {ul
@@ -163,10 +180,10 @@ val split_base : t -> t * t
     ensures that [b] is a {{!is_rel_seg}relative segment} iff [p] cannot
     be named (like in ["."], ["../../"], ["/"], etc.). *)
 
-val base : t -> t
+val base : 'a t -> 'a t
 (** [base p] is [snd (split_base p)]. *)
 
-val basename : t -> string
+val basename : 'a t -> string
 (** [basename p] is [p]'s last non-empty segment if non-relative or
     the empty string otherwise. The latter occurs only on {{!is_root}root
     paths} and on paths whose last non-empty segment is a
@@ -177,7 +194,7 @@ val basename : t -> string
     ensures the empty string is only returned iff [p] cannot be
     named (like in ["."], ["../../"], ["/"], etc.) *)
 
-val parent : t -> t
+val parent : 'a t -> 'a t
 (** [parent p] is a {{!is_dir_path}directory path} that contains [p].
     If [p] is a {{!is_root}root path} this is [p] itself.
     {{!ex_parent}Examples}.
@@ -187,14 +204,14 @@ val parent : t -> t
 
 (** {1:norm Normalization} *)
 
-val rem_empty_seg : t -> t
+val rem_empty_seg : 'a t -> 'a t
 (** [rem_empty_seg p] removes an existing last empty segment of [p] if [p]
     is not a {{!is_root}root path}. This ensure that if [p] is
     converted to a string it will not have a trailing {!dir_sep}
     unless [p] is a root path. Note that this may affect [p]'s
     {{!is_dir_path}directoryness}.  {{!ex_rem_empty_seg}Examples}. *)
 
-val normalize : t -> t
+val normalize : 'a t -> 'a t
 (** [normalize p] is a path that represents the same path as [p],
     {{!is_dir_path}directoryness} included, and that has the following
     properties:
@@ -229,7 +246,7 @@ is_prefix (v "..") (v ".") = false
     the prefix relation does entail directory containement. See also
     {!is_rooted}. *)
 
-val is_prefix : t -> t -> bool
+val is_prefix : 'a t -> 'a t -> bool
 (** [is_prefix prefix p] is [true] if [prefix] is a prefix of
     [p]. This checks that:
     {ul
@@ -242,7 +259,7 @@ val is_prefix : t -> t -> bool
        [is_prefix (v "a/") (v "a")] is [false]}}
     {{!ex_is_prefix}Examples}. *)
 
-val find_prefix : t -> t -> t option
+val find_prefix : 'a t -> 'a t -> 'a t option
 (** [find_prefix p p'] is [Some prefix] if there exists [prefix] such
     that [prefix] is the longest path with [is_prefix prefix p &&
     is_prefix prefix p' = true] and [None] otherwise.  Note that if
@@ -250,7 +267,7 @@ val find_prefix : t -> t -> t option
     prefix always exists: the {{!is_root}root path} of their volume.
     {{!ex_find_prefix}Examples}. *)
 
-val rem_prefix : t -> t -> t option
+val rem_prefix : 'a t -> 'a t -> 'a t option
 (** [rem_prefix prefix p] is:
     {ul
     {- [None] if [prefix] is not a {{!is_prefix}prefix} of [p] or if [prefix]
@@ -265,7 +282,7 @@ val rem_prefix : t -> t -> t option
 
 (** {1:rootrel Roots and relativization} *)
 
-val relativize : root:t -> t -> t option
+val relativize : root:'a t -> 'a t -> 'a t option
 (** [relativize ~root p] is:
     {ul
     {- [Some q] if there exists a {{!is_relative}relative} path [q] such
@@ -277,7 +294,7 @@ val relativize : root:t -> t -> t option
 
     {{!ex_relativize}Examples}. *)
 
-val is_rooted : root:t -> t -> bool
+val is_rooted : root:'a t -> 'a t -> bool
 (** [is_rooted root p] is [true] iff the path [p] is the
     {{!is_dir_path}{e directory}} [root] or contained in [root] and that [p]
     can be {{!relativize} relativized} w.r.t. [root] (the normalized relative
@@ -286,15 +303,15 @@ val is_rooted : root:t -> t -> bool
 
 (** {1:predicates Predicates and comparison} *)
 
-val is_rel : t -> bool
+val is_rel : 'a t -> bool
 (** [is_rel p] is [true] iff [p] is a relative path, i.e. the root
     directory separator is missing in [p]. *)
 
-val is_abs : t -> bool
+val is_abs : 'a t -> bool
 (** [is_abs p] is [true] iff [p] is an absolute path, i.e. the root
     directory separator is present in [p]. *)
 
-val is_root : t -> bool
+val is_root : 'a t -> bool
 (** [is_root p] is [true] iff [p] is a root directory, i.e. [p] has the
     root directory separator and a single, empty, segment.
     {{!ex_is_root}Examples}.
@@ -303,7 +320,7 @@ val is_root : t -> bool
     return [false] on ["/a/.."] or ["/.."]. {{!normalize}Normalizing}
     the path before testing avoids this problem. *)
 
-val is_current_dir : ?prefix:bool -> t -> bool
+val is_current_dir : ?prefix:bool -> 'a t -> bool
 (** [is_current_dir p] is true iff [p] is the current relative directory,
     i.e. either ["."] or ["./"]. If [prefix] is [true] (defaults to [false])
     simply checks that [p] is {{!is_rel}relative} and its first segment
@@ -313,7 +330,7 @@ val is_current_dir : ?prefix:bool -> t -> bool
     return [false] on ["./a/.."] or ["./."]. {{!normalize}Normalizing} the
     path before testing avoids this problem. *)
 
-val is_parent_dir : ?prefix:bool -> t -> bool
+val is_parent_dir : ?prefix:bool -> 'a t -> bool
 (** [is_parent_dir p] is [true] iff [p] is the relative parent directory,
     i.e. either [".."] or ["../"]. If [prefix] is [true] (defaults to [false]),
     simply checks that [p] is {{!is_rel}relative} and its first segment
@@ -323,7 +340,7 @@ val is_parent_dir : ?prefix:bool -> t -> bool
     return [false] on ["./a/../.."] or ["./.."]. {{!normalize}Normalizing} the
     path before testing avoids this problem. *)
 
-val is_dotfile : t -> bool
+val is_dotfile : 'a t -> bool
 (** [is_dotfile p] is [true] iff [p]'s {{!basename}basename} is non
     empty and starts with a ['.'].
 
@@ -331,7 +348,7 @@ val is_dotfile : t -> bool
     return [false] on [".ssh/."]. {{!normalize}Normalizing} the
     path before testing avoids this problem. *)
 
-val equal : t -> t -> bool
+val equal : 'a t -> 'a t -> bool
 (** [equal p p'] is [true] if [p] and [p'] have the same volume
     are both relative or absolute and have the same segments.
 
@@ -339,16 +356,19 @@ val equal : t -> t -> bool
     [equal (v "./") (v "a/..")] is [false]. {{!normalize}Normalizing}
     the paths before testing avoids this problem. *)
 
-val compare : t  -> t -> int
+val compare : 'a t  -> 'a t -> int
 (** [compare p p'] is a total order on paths compatible with {!equal}. *)
+
+val hash : 'a t -> int
+(** A hashing function intended for hash tables. *)
 
 (** {1:conversions Conversions and pretty printing} *)
 
-val to_string : t -> string
-(** [to_string p] is the path [p] as a string. The result can
-    be safely converted back with {!v}. *)
+val to_string : 'a t -> string
+(** [to_string p] is the path [p] as a string in the format specified
+    by the type parameter. *)
 
-val of_string : string -> (t, [`Msg of string]) result
+val of_string : string -> (native t, [`Msg of string]) result
 (** [of_string s] is the string [s] as a path. The following transformations
     are performed on the string:
     {ul
@@ -369,10 +389,13 @@ val of_string : string -> (t, [`Msg of string]) result
     {- On Windows, [s] is an invalid UNC path (e.g. ["\\\\"] or ["\\\\a"])}}
  *)
 
-val pp : Format.formatter -> t -> unit
+val of_posix_string : string -> (posix t, [`Msg of string]) result
+val of_windows_string : string -> (windows t, [`Msg of string]) result
+
+val pp : Format.formatter -> 'a t -> unit
 (** [pp ppf p] prints path [p] on [ppf] using {!to_string}. *)
 
-val dump : Format.formatter -> t -> unit
+val dump : Format.formatter -> 'a t -> unit
 (** [dump ppf p] prints path [p] on [ppf] using {!String.dump}. *)
 
 (** {1:file_exts File extensions}
@@ -394,28 +417,28 @@ val dump : Format.formatter -> t -> unit
 type ext = string
 (** The type for file extensions. *)
 
-val get_ext : ?multi:bool -> t -> ext
+val get_ext : ?multi:bool -> 'a t -> ext
 (** [get_ext p] is [p]'s {{!basename}basename} file extension or the
     empty string if there is no extension. If [multi] is [true]
     (defaults to [false]), returns the multiple file
     extension. {{!ex_get_ext}Examples}. *)
 
-val has_ext : ext -> t -> bool
+val has_ext : ext -> 'a t -> bool
 (** [has_ext e p] is [true] iff [get_ext p = e || get_ext ~multi:true p = e].
     If [e] doesn't start with a ['.'] one is prefixed before making
     the test. {{!ex_has_ext}Examples}. *)
 
-val mem_ext : ext list -> t -> bool
+val mem_ext : ext list -> 'a t -> bool
 (** [mem_ext exts p] is
     [List.mem (get_ext p) exts || List.mem (get_ext ~multi:true p) exts]. *)
 
-val exists_ext : ?multi:bool -> t -> bool
+val exists_ext : ?multi:bool -> 'a t -> bool
 (** [exists_ext ~multi p] is [true] iff [p]'s {{!basename}basename}
     file extension is not empty. If [multi] is [true] (default to
     [false]) returns [true] iff [p] has {e more than one} extension.
     {{!ex_exists_ext}Examples}. *)
 
-val add_ext : ext -> t -> t
+val add_ext : ext -> 'a t -> 'a t
 (** [add_ext ext p] is [p] with the string [ext] concatenated to [p]'s
     {{!basename}basename}, if non empty. If [ext] doesn't start with a ['.']
     one is prefixed to it before concatenation except if [ext] is
@@ -423,148 +446,32 @@ val add_ext : ext -> t -> t
 
     @raise Invalid_argument if {!is_seg}[ ext] is [false]. *)
 
-val rem_ext : ?multi:bool -> t -> t
+val rem_ext : ?multi:bool -> 'a t -> 'a t
 (** [rem_ext p] is [p] with the extension of [p]'s
     {{!basename}basename} removed. If [multi] is [true] (default to
     [false]), the multiple file extension is
     removed. {{!ex_rem_ext}Examples}. *)
 
-val set_ext : ?multi:bool -> ext -> t -> t
+val set_ext : ?multi:bool -> ext -> 'a t -> 'a t
 (** [set_ext ?multi ext p] is [add_ext ext (rem_ext ?multi p)]. *)
 
-val split_ext : ?multi:bool -> t -> t * ext
+val split_ext : ?multi:bool -> 'a t -> 'a t * ext
 (** [split_ext ?multi p] is [(rem_ext ?multi p, get_ext ?multi p)]. If this is
     [(q, ext)] the following invariant holds:
     {ul
     {- [equal p (add_ext q ext)]}} *)
 
-val ( + ) : t -> ext -> t
+val ( + ) : 'a t -> ext -> 'a t
 (** [p + ext] is [add_ext ext p]. Left associative. *)
 
-val ( -+ ) : t -> ext -> t
+val ( -+ ) : 'a t -> ext -> 'a t
 (** [p -+ ext] is [set_ext ext p]. Left associative. *)
 
 (** {1:sets_maps Path sets and maps} *)
 
-type path = t
-
-type set
-(** The type for path sets. Membership is determined according to {!equal}. *)
-
-(** Path sets. *)
-module Set : sig
-
-  (** {1 Path sets} *)
-
-  include Set.S with type elt := path
-                 and type t := set
-
-  type t = set
-
-  val min_elt : set -> path option
-  (** Exception safe {!Set.S.min_elt}. *)
-
-  val get_min_elt : set -> path
-  (** [get_min_let] is like {!min_elt} but @raise Invalid_argument
-        on the empty set. *)
-
-  val max_elt : set -> path option
-  (** Exception safe {!Set.S.max_elt}. *)
-
-  val get_max_elt : set -> path
-  (** [get_max_elt] is like {!max_elt} but @raise Invalid_argument
-        on the empty set. *)
-
-  val choose : set -> path option
-  (** Exception safe {!Set.S.choose}. *)
-
-  val get_any_elt : set -> path
-  (** [get_any_elt] is like {!choose} but @raise Invalid_argument on the
-        empty set. *)
-
-  val find : path -> set -> path option
-  (** Exception safe {!Set.S.find}. *)
-
-  val get : path -> set -> path
-  (** [get] is like {!Set.S.find} but @raise Invalid_argument if
-        [elt] is not in [s]. *)
-
-  val of_list : path list -> set
-  (** [of_list ps] is a set from the list [ps]. *)
-
-  val pp : ?sep:(Format.formatter -> unit -> unit) ->
-    (Format.formatter -> path -> unit) ->
-    Format.formatter -> set -> unit
-  (** [pp ~sep pp_elt ppf ps] formats the elements of [ps] on
-      [ppf]. Each element is formatted with [pp_elt] and elements are
-      separated by [~sep] (defaults to {!Format.pp_print_cut}). If the
-      set is empty leaves [ppf] untouched. *)
-
-  val dump : Format.formatter -> set -> unit
-  (** [dump ppf ps] prints an unspecified representation of [ps] on
-        [ppf]. *)
-end
-
-(** Path maps. *)
-module Map : sig
-
-  (** {1 Path maps} *)
-
-  include Map.S with type key := t
-
-  val min_binding : 'a t -> (path * 'a) option
-  (** Exception safe {!Map.S.min_binding}. *)
-
-  val get_min_binding : 'a t -> (path * 'a)
-  (** [get_min_binding] is like {!min_binding} but @raise Invalid_argument
-      on the empty map. *)
-
-  val max_binding : 'a t -> (path * 'a) option
-  (** Exception safe {!Map.S.max_binding}. *)
-
-  val get_max_binding : 'a t -> string * 'a
-  (** [get_min_binding] is like {!max_binding} but @raise Invalid_argument
-      on the empty map. *)
-
-  val choose : 'a t -> (path * 'a) option
-  (** Exception safe {!Map.S.choose}. *)
-
-  val get_any_binding : 'a t -> (path * 'a)
-  (** [get_any_binding] is like {!choose} but @raise Invalid_argument
-      on the empty map. *)
-
-  val find : path -> 'a t -> 'a option
-  (** Exception safe {!Map.S.find}. *)
-
-  val get : path -> 'a t -> 'a
-  (** [get k m] is like {!Map.S.find} but raises [Invalid_argument] if
-      [k] is not bound in [m]. *)
-
-  val dom : 'a t -> set
-  (** [dom m] is the domain of [m]. *)
-
-  val of_list : (path * 'a) list -> 'a t
-  (** [of_list bs] is [List.fold_left (fun m (k, v) -> add k v m) empty
-      bs]. *)
-
-  val pp : ?sep:(Format.formatter -> unit -> unit) ->
-    (Format.formatter -> path * 'a -> unit) -> Format.formatter ->
-    'a t -> unit
-  (** [pp ~sep pp_binding ppf m] formats the bindings of [m] on
-      [ppf]. Each binding is formatted with [pp_binding] and
-      bindings are separated by [sep] (defaults to
-      {!Format.pp_print_cut}). If the map is empty leaves [ppf]
-      untouched. *)
-
-  val dump : (Format.formatter -> 'a -> unit) -> Format.formatter ->
-    'a t -> unit
-  (** [dump pp_v ppf m] prints an unspecified representation of [m] on
-        [ppf] using [pp_v] to print the map codomain elements. *)
-end
-
-type +'a map = 'a Map.t
-(** The type for maps from paths to values of type ['a]. Paths are compared
-    with {!compare}. *)
+val compare : 'a t -> 'a t -> int
+val equal : 'a t -> 'a t -> bool
+val hash : 'a t -> int
 
 (** {1:tips Tips}
 
